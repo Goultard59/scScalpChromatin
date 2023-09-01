@@ -13,17 +13,18 @@ suppressPackageStartupMessages({
   library(stringr)
   library(rtracklayer)
   library(Biostrings)
-  library(BSgenome.Hsapiens.UCSC.hg38.masked)
+  #library(BSgenome.Hsapiens.UCSC.hg38.masked)
+  library(SuscrofaTxdb.11.108.july)
   library(parallel)
   library(ComplexHeatmap)
 })
 
 # Set Threads to be used
-ncores <- 8
-addArchRThreads(threads = ncores)
+ncores <- 5
+#addArchRThreads(threads = ncores)
 
 # Get additional functions, etc.:
-scriptPath <- "/home/users/boberrey/git_clones/scScalpChromatin"
+scriptPath <- "/home/adufour/work/scScalpChromatin"
 source(paste0(scriptPath, "/misc_helpers.R"))
 source(paste0(scriptPath, "/matrix_helpers.R"))
 source(paste0(scriptPath, "/archr_helpers.R"))
@@ -38,16 +39,19 @@ dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 setwd(wd)
 
 #Load Genome Annotations
-data("geneAnnoHg38")
-data("genomeAnnoHg38")
-geneAnno <- geneAnnoHg38
-genomeAnno <- genomeAnnoHg38
+geneAnnotation <- readRDS("/home/adufour/work/rds_storage/omics/geneannotation.rds")
+chr_filter <- c('MT', 'AEMK02000319.1', 'AEMK02000531.1', 'AEMK02000237.1', 'AEMK02000629.1', 'AEMK02000676.1', 'AEMK02000418.1', 'AEMK02000442.1', 'AEMK02000473.1', 'AEMK02000681.1',"AEMK02000374.1","AEMK02000316.1","AEMK02000375.1","AEMK02000265.1","AEMK02000388.1","AEMK02000628.1","AEMK02000634.1","AEMK02000643.1","AEMK02000673.1","AEMK02000704.1")
+
+genomeAnnotation <- createGenomeAnnotation(SuscrofaTxdb.11.108.july, standard = FALSE, filter = TRUE, filterChr = chr_filter)
+
+#geneAnno <- geneAnnoHg38
+#genomeAnno <- genomeAnnoHg38
 
 # Set genome
-genome <- BSgenome.Hsapiens.UCSC.hg38.masked
+genome <- SuscrofaTxdb.11.108.july
 
 # Load ArchR project
-atac_proj <- loadArchRProject(wd, force=TRUE)
+load(file = "/home/adufour/work/rds_storage/omics/archr_all_v6.RData")
 
 # Peak width to use
 peak_width <- 1001
@@ -113,19 +117,21 @@ getRandomPos <- function(n, genome, use_chr=NULL, width=1,
   return(full_gr)
 }
 
-selectTargetSeqs <- function(peaks_gr, targets_gr, blacklist_gr, nseqs,
+selectTargetSeqs <- function(peaks_gr, targets_gr, blacklist_gr=NULL, nseqs,
   nbins=20, bin_type="size", seed=123){
   # Identify random genomic sequences to be used for model training
   # peaks_gr = true sequences for cell type
   # targets_gr = target null sequences to sample from
   # nseqs = vector of number of sequences to take from each list
- 
-  # Add peaks to blacklist
-  message("Preparing targets...")
-  blacklist_gr <- sort(reduce(c(blacklist_gr, granges(peaks_gr))))
 
-  # Filter targets by blacklist
-  targets_gr <- targets_gr[!targets_gr %over% blacklist_gr]
+  if(!is.null(blacklist_gr)){
+    # Add peaks to blacklist
+    message("Preparing targets...")
+    blacklist_gr <- sort(reduce(c(blacklist_gr, granges(peaks_gr))))
+
+    # Filter targets by blacklist
+    targets_gr <- targets_gr[!targets_gr %over% blacklist_gr]
+  }
 
   # Prepare a 'bin grid' of parameters to match distribution on
   message("Preparing bins by GC content for sampling random sequences...")
@@ -164,13 +170,14 @@ selectTargetSeqs <- function(peaks_gr, targets_gr, blacklist_gr, nseqs,
 ##########################################################################################
 
 # Get all peaks from ArchR project
+atac_proj <- archrproj_sub
 peaks_gr <- getPeakSet(atac_proj)
 peaks_gr$peakName <- (peaks_gr %>% {paste0(seqnames(.), "_", start(.), "_", end(.))})
 seqinfo(peaks_gr) <- seqinfo(genome)[seqlevels(peaks_gr)]
 
 # Identify blacklist regions in genome
-use_chr <- unique(seqnames(peaks_gr))
-use_masks <- c("AGAPS", "AMB")
+#use_chr <- unique(seqnames(peaks_gr))
+#use_masks <- c("AGAPS", "AMB")
 
 # Obtain full mask GR
 masked_gr <- lapply(use_chr, function(chr){
@@ -186,7 +193,7 @@ masked_gr <- lapply(use_chr, function(chr){
 
 # Now, identify peaks per cell type and write fasta files (separated by chr for cross validation
 # purposes.)
-cell_types <- getFreqs(atac_proj$FineClust)
+cell_types <- getFreqs(atac_proj$Clusters)
 cell_types <- names(cell_types)[cell_types > min_cells]
 
 # Identify marker peaks for each retained cluster
@@ -197,8 +204,7 @@ cell_types <- names(cell_types)[cell_types > min_cells]
 markerPeaks <- getMarkerFeatures(
     ArchRProj = atac_proj, 
     useMatrix = "PeakMatrix", 
-    groupBy = "FineClust",
-    useGroups = cell_types,
+    groupBy = "Clusters",
     bias = c("TSSEnrichment", "log10(nFrags)"),
     testMethod = "wilcoxon"
 )
@@ -210,7 +216,7 @@ markerList <- lapply(markerList, function(mdf){
 
 # Identify 'top' peaks for cell type and combine with appropriate set of marker peaks
 cts_peaks <- lapply(cell_types, function(ct){
-  message(sprintf("Gettting peaks from cluster %s...", ct))
+  message(sprintf("Getting peaks from cluster %s...", ct))
   peaks <- getClusterPeaks(atac_proj, clusterNames=c(ct), peakGR=peaks_gr, originalScore=TRUE)
   # Sort peaks by score
   peaks <- peaks[order(peaks$score, decreasing=TRUE)]
@@ -227,7 +233,7 @@ cts_peaks <- lapply(cell_types, function(ct){
 names(cts_peaks) <- cell_types
 
 # Only train models for cell types that have sufficient peaks for model training
-cts_peaks <- cts_peaks[unlist(lapply(cts_peaks, length)) > use_peaks*0.75]
+#cts_peaks <- cts_peaks[unlist(lapply(cts_peaks, length)) > use_peaks*0.75]
 
 ##########################################################################################
 # Show similarity between input training data (Jaccard index)
@@ -254,66 +260,18 @@ colnames(jacc_mat) <- cell_types
 
 jacc_mat[jacc_mat == 1.0] <- NA
 
-# Specify order of clusters (Fine Clust)
-atacOrder <- c(
- # Lymphoid / T-cells
-  "aTc3", # "Tc",  # Cytotoxic T-cells: CCL4, CCL5, CD8A, GZMK, IFNG 
-  "aTc1", # "Th_1", # T-helper
-  "aTc2", # "Th_2", # T-helper
-  "aTc5", # "Th_3", # T-helper
-  "aTc4", # "Treg", # Regulatory T cells: IKZF2, IL2RA, CTLA4, FOXP3
-  # B/Plasma
-  "aBc1", # "Plasma",
-  # Myeloid
-  "aMy6", # "M1.macs", # IL15, IL32, CCR7
-  "aMy1", # "M2.macs_1",
-  "aMy3", # "M2.macs_2", 
-  "aMy4", # "M2.macs_3", 
-  "aMy2", # "cDC2_1", # CD1c, CLEC10a (conventional DCs - type 2)
-  #"aMy7", # "cDC2_2", 
-  "aMy5", # "CLEC9a.DC", # CLEC9a, CLEC4C, XCR1
-  # Keratinocytes
-  "aKc1", # "Basal.Kc_1",
-  "aKc2", # "Spinous.Kc_2",
-  "aKc3", # "Spinous.Kc_1",
-  "aKc4", # "Infundibulum", # SOX9, DKK3
-  "aKc5", # "Inf.Segment_1", # Lhx2, LGR5 high
-  "aKc7", # "Inf.Segment_2", # Lhx2, LGR5 high
-  "aKc6", # "Sebaceous", 
-  "aKc8", # "Isthmus", # CD200 high
-  "aKc9", # "Matrix", 
-  "aKc10", # "Eccrine",
-  #"aKc11", # "Unknown",
-  # Fibroblasts
-  "aFb1", # "Fb_1", 
-  "aFb2", # "Fb_2", 
-  "aFb4", # "Fb_3", 
-  #"aFb5", # "Fb_4", 
-  "aFb3", # "D.Sheath", # COL11A1
-  "aFb6", # "D.Papilla", # Many markers HHIP, PTCH1, etc.
-  # Endothelial
-  "aVe1", # "Vas.Endo_1",
-  "aVe2", # "Vas.Endo_2", 
-  "aVe3", # "Vas.Endo_3",
-  "aLe1", # "Lymph.Endo_1",
-  # Non-subclustered
-  "aMu1", # "Muscle",
-  "aMu2", # "Pericytes", 
-  "aMe1" # "Melanocytes"
-)
-
 pmat <- jacc_mat
 
 # Add cluster labels
 source(paste0(scriptPath, "/cluster_labels.R"))
-LatacOrder <- unlist(atac.FineClust)[atacOrder]
+LatacOrder <- unlist(atac.FineClust)
 rownames(pmat) <- unlist(atac.FineClust)[rownames(pmat)]
 colnames(pmat) <- unlist(atac.FineClust)[colnames(pmat)]
 LatacOrder <- LatacOrder[LatacOrder %in% colnames(pmat)]
 pmat <- pmat[LatacOrder, LatacOrder]
 
 # Jaccard heatmap
-pdf(paste0(outdir, "/TrainingPeaks_jaccard_index_HM_1000bp.pdf"), width=12, height=12)
+pdf(paste0("/home/adufour/work/notebook/plots/gskm", "/TrainingPeaks_jaccard_index_HM_1000bp.pdf"), width=12, height=12)
 ht_opt$simple_anno_size <- unit(0.25, "cm")
 hm <- BORHeatmap(
   pmat,
@@ -344,8 +302,7 @@ all_peaks <- peaks_gr %>% resize(peak_width, fix="center") %>% trim_oob() %>% tr
 # Create random peak set
 set.seed(123)
 random_peaks <- getRandomPos(4e6, genome=genome, 
-    use_chr=seqlevels(all_peaks), width=peak_width, 
-    blacklist_gr=c(masked_gr, all_peaks), non_overlapping=FALSE)
+    use_chr=seqlevels(all_peaks), width=peak_width, non_overlapping=FALSE)
 
 # Add GC content to peak sets
 #all_peaks$GC <- gcContent(all_peaks, genome)
@@ -353,8 +310,7 @@ random_peaks$GC <- gcContent(random_peaks, genome)
 
 # Pre-filter random_peaks to better match target GC distribution
 all_cts_peaks <- as(cts_peaks, "GRangesList") %>% unlist()
-random_peaks <- selectTargetSeqs(all_cts_peaks, targets_gr=random_peaks, 
-  blacklist_gr=c(masked_gr, all_peaks), nseqs=2e6)
+random_peaks <- selectTargetSeqs(all_cts_peaks, targets_gr=random_peaks, nseqs=2e6)
 
 #####################################################################################
 # Find null seqs for each cell type in parallel
@@ -365,7 +321,7 @@ null_regions <- mclapply(names(cts_peaks), function(x){
 
   set.seed(123)
   nseqs <- length(cts_peaks[[x]])
-  full_null <- selectTargetSeqs(cts_peaks[[x]], targets_gr=random_peaks, blacklist_gr=masked_gr, nseqs=nseqs)
+  full_null <- selectTargetSeqs(cts_peaks[[x]], targets_gr=random_peaks, nseqs=nseqs)
   message(sprintf("Successfully found %s seqs for %s", length(full_null), x))
   print(t.test(cts_peaks[[x]]$GC, full_null$GC)) # usually within 1% GC content
   full_null
@@ -376,7 +332,7 @@ names(null_regions) <- names(cts_peaks)
 #####################################################################################
 
 # Write true and null sequences to fasta files (split by chromosome)
-fasta_dir <- paste0(outdir, "/fastas_1000bp_randOnly")
+fasta_dir <- paste0("/home/adufour/work/gskm", "/fastas_1000bp_randOnly")
 dir.create(fasta_dir, showWarnings = FALSE, recursive = TRUE)
 
 for(ct in names(cts_peaks)){
@@ -386,10 +342,12 @@ for(ct in names(cts_peaks)){
   peaks <- split(peaks, seqnames(peaks))
   chr_names <- names(peaks)
   for(chr in chr_names){
-    true_seqs <- BSgenome::getSeq(genome, names=peaks[[chr]])
-    #names(true_seqs) <- peaks[[chr]]$peakName
-    names(true_seqs) <- (peaks[[chr]] %>% {paste0(seqnames(.), "_", start(.), "_", end(.))})
-    writeXStringSet(true_seqs, file=paste0(fasta_dir, sprintf("/%s_%s_true_seqs.fasta", ct, chr)))
+    if(length(peaks[[chr]]) != 0) {
+      true_seqs <- BSgenome::getSeq(genome, names=peaks[[chr]])
+      #names(true_seqs) <- peaks[[chr]]$peakName
+      names(true_seqs) <- (peaks[[chr]] %>% {paste0(seqnames(.), "_", start(.), "_", end(.))})
+      writeXStringSet(true_seqs, file=paste0(fasta_dir, sprintf("/%s_%s_true_seqs.fasta", ct, chr)))
+    }
   }
   
   # write null fastas
@@ -398,10 +356,10 @@ for(ct in names(cts_peaks)){
   peaks <- split(peaks, seqnames(peaks))
   chr_names <- names(peaks)
   for(chr in chr_names){
-    null_seqs <- BSgenome::getSeq(genome, names=peaks[[chr]])
-    names(null_seqs) <- (peaks[[chr]] %>% {paste0(seqnames(.), "_", start(.), "_", end(.))})
-    writeXStringSet(null_seqs, file=paste0(fasta_dir, sprintf("/%s_%s_null_seqs.fasta", ct, chr)))
+    if(length(peaks[[chr]]) != 0) {
+      null_seqs <- BSgenome::getSeq(genome, names=peaks[[chr]])
+      names(null_seqs) <- (peaks[[chr]] %>% {paste0(seqnames(.), "_", start(.), "_", end(.))})
+      writeXStringSet(null_seqs, file=paste0(fasta_dir, sprintf("/%s_%s_null_seqs.fasta", ct, chr)))
+    }
   }
 }
-
-#####################################################################################
