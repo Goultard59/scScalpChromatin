@@ -11,17 +11,17 @@
 ml system gcc
 
 # Add executibles to path
-export PATH=$HOME/git_clones/lsgkm-svr/bin:$PATH
+export PATH=$HOME/work/lsgkm-svr/bin:$PATH
 
 # Directory containing fit models
-model_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/fit_models_1000bp
+model_dir=/home/adufour/work/gskm/fit_models_1000bp
 
 # Directory for prediction results
-pred_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/model_predictions
+pred_dir=/home/adufour/work/gskm/model_predictions
 if [ ! -d ${pred_dir} ]; then mkdir ${pred_dir}; fi
 
 # Fasta files to predict
-fasta_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/fastas_1000bp_randOnly
+fasta_dir=/home/adufour/work/gskm/fastas_1000bp_randOnly
 true_seq_files=(${fasta_dir}/*_true_seqs.fasta)
 
 # Cell type headers for models
@@ -30,21 +30,23 @@ file_basenames=("${model_files[@]##*/}")
 model_headers=("${file_basenames[@]/.fold0.model.txt/}")
 
 # Define training/testing folds
-all_chrs=($(seq 1 1 22))
+all_chrs=($(seq 1 1 18))
 all_chrs+=("X")
-all_chrs=("${all_chrs[@]/#/chr}")
+#all_chrs=("${all_chrs[@]/#/chr}")
 
 # 10-fold cross validation
-fold0=(chr1)
-fold1=(chr2 chr19)
-fold2=(chr3 chr20)
-fold3=(chr6 chr13 chr22)
-fold4=(chr5 chr16) # There is no chrY in our data
-fold5=(chr4 chr15 chr21)
-fold6=(chr7 chr14 chr18)
-fold7=(chr11 chr17 chrX)
-fold8=(chr9 chr12)
-fold9=(chr8 chr10)
+fold0=(1)
+fold1=(2 18)
+fold2=(3 13)
+fold3=(6 X)
+fold4=(5 16)
+fold5=(4 15)
+fold6=(7 14)
+fold7=(11 17)
+fold8=(9 12)
+fold9=(8 10)
+fold10=(Y)
+fold11=(AEMK02000133.1 AEMK02000137.1 AEMK02000146.1)
 
 #n_folds=($(seq 0 1 9))
 
@@ -96,7 +98,7 @@ do
                 # Predict accessibility
                 true_log=${outpre}.pred.${celltype}.true.log
                 echo "Predicting true ${celltype} accessibility using ${model}..."
-                sbatch -p wjg,biochem,sfgf -t 12:00:00 --mem=10G --cpus-per-task=4 \
+                sbatch -t 12:00:00 --mem=10G --cpus-per-task=4 \
                 --job-name=${job_header} --output=${true_log} --error=${true_log} \
                 --wrap "gkmpredict -T 4 ${true_seqs} ${model_file} ${true_result}"
             else
@@ -111,7 +113,7 @@ do
                 # Predict accessibility
                 null_log=${outpre}.pred.${celltype}.null.log
                 echo "Predicting null ${celltype} accessibility using ${model}..."
-                sbatch -p wjg,biochem,sfgf -t 12:00:00 --mem=10G --cpus-per-task=4 \
+                sbatch -t 12:00:00 --mem=10G --cpus-per-task=4 \
                 --job-name=${job_header} --output=${null_log} --error=${null_log} \
                 --wrap "gkmpredict -T 4 ${null_seqs} ${model_file} ${null_result}"
             else
