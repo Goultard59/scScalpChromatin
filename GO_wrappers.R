@@ -40,7 +40,7 @@ calcTopGo <- function(
             "topGOdata",
             ontology = ontology,
             allGenes = geneList,
-            annot = annFUN.org, mapping = "org.Hs.eg.db", ID = "symbol",
+            annot = annFUN.org, mapping = "org.Ss.eg.db", ID = "symbol",
             nodeSize = nodeSize
             ))
     }else{
@@ -53,7 +53,7 @@ calcTopGo <- function(
             ontology = ontology,
             allGenes = geneList,
             geneSel = geneSel,
-            annot = annFUN.org, mapping = "org.Hs.eg.db", ID = "symbol",
+            annot = annFUN.org, mapping = "org.Ss.eg.db", ID = "symbol",
             nodeSize = nodeSize
             ))
     }
