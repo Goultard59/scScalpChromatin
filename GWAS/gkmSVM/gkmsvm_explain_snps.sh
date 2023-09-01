@@ -14,17 +14,17 @@
 ml system gcc
 
 # Add executibles to path
-export PATH=$HOME/git_clones/lsgkm-svr/bin:$PATH
+export PATH=$HOME/work/lsgkm-svr/bin:$PATH
 
 # Directory containing fit models
-model_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/full_models_1000bp 
+model_dir=/home/adufour/work/gskm/full_models_1000bp
 
 # Directory for prediction results
-result_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/snp_explanations
+result_dir=/home/adufour/work/gskm/snp_explanations
 if [ ! -d ${result_dir} ]; then mkdir ${result_dir}; fi
 
 # Fasta files to predict
-fasta_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/snp_fastas
+fasta_dir=/home/adufour/work/gskm/fastas_1000bp_randOnly
 snp_fastas=(${fasta_dir}/*snp_seqs*.fasta)
 
 # All previously fit models
@@ -54,7 +54,7 @@ do
         then
             # Explain model importance
             echo "Using model ${model} to calculate gkmexplain scores for ${fasta_basename}..."
-            sbatch -p wjg,biochem,sfgf -t 23:59:00 --mem=12G --cpus-per-task=1 \
+            sbatch --mem=12G --cpus-per-task=1 \
             --job-name=${job_header} --output=${log_file} --error=${log_file} \
             --wrap "gkmexplain ${fasta} ${model_file} ${result_file}"
         else
