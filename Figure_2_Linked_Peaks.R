@@ -441,7 +441,7 @@ kclust_df <- data.frame(
   kclust=p2gMat$ATAC$kmeansId,
   peakName=p2gMat$Peak2GeneLinks$peak,
   gene=p2gMat$Peak2GeneLinks$gene
-  )
+)
 
 # Fix peakname
 kclust_df$peakName <- sapply(kclust_df$peakName, function(x) strsplit(x, ":|-")[[1]] %>% paste(.,collapse="_"))
@@ -515,11 +515,11 @@ kclust <- unique(kclust_df$kclust) %>% sort()
 all_genes <- kclust_df$gene %>% unique() %>% sort()
 
 # Save table of top linked genes per kclust
-nGOgenes <- 200
+nGOgenes <- 1000
 topKclustGenes <- lapply(kclust, function(k){
   kclust_df[kclust_df$kclust == k,]$gene %>% getFreqs() %>% head(nGOgenes) %>% names()
   }) %>% do.call(cbind,.)
-outfile <- paste0(plotDir, sprintf("/topN_genes_kclust_k%s.tsv", nclust))
+outfile <- paste0(plotDir, sprintf("/topN_genes_embryo_kclust_k%s.tsv", nclust))
 write.table(topKclustGenes, file=outfile, quote=FALSE, sep='\t', row.names = FALSE, col.names=TRUE)
 
 GOresults <- lapply(kclust, function(k){
@@ -536,16 +536,18 @@ GOresults <- lapply(kclust, function(k){
 names(GOresults) <- paste0("cluster_", kclust)
 
 # Plots of GO term enrichments:
+library(viridis)
 pdf(paste0(plotDir, sprintf("/kclust_GO_3termsBPonlyBarLim_k%s.pdf", nclust)), width=10, height=2.5)
 for(name in names(GOresults)){
     goRes <- GOresults[[name]]
     if(nrow(goRes)>1){
-      print(topGObarPlot(goRes, cmap = cmaps_BOR$comet, 
+      svglite(paste0("/home/adufour/work/notebook/plots/omics/P2G/p2g_GO_knn", name, "_embryo.svg"), width = 17, height = 20)
+      print(topGObarPlot(goRes, cmap = viridis(256, option = "D"), 
         nterms=3, border_color="black", 
         barwidth=0.85, title=name, barLimits=c(0, 15)))
+      dev.off()
     }
 }
-dev.off()
 
 
 ###################################################################################################
