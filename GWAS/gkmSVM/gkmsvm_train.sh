@@ -15,19 +15,19 @@
 ml system gcc
 
 # Add executibles to path
-export PATH=$HOME/git_clones/lsgkm-svr/bin:$PATH
+export PATH=$HOME/work/lsgkm-svr/bin:$PATH
 
 # Get output directory ready
-model_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/fit_models_1000bp
-full_model_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/full_models_1000bp
+model_dir=/home/adufour/work/gskm/fit_models_1000bp
+full_model_dir=/home/adufour/work/gskm/full_models_1000bp
 if [ ! -d ${model_dir} ]; then mkdir ${model_dir}; fi
 if [ ! -d ${full_model_dir} ]; then mkdir ${full_model_dir}; fi
 
 # Find all peak categories and fastas
-fasta_dir=/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/fastas_1000bp_randOnly
-chr1_true_seq_files=(${fasta_dir}/*chr1_true_seqs.fasta)
+fasta_dir=/home/adufour/work/gskm/fastas_1000bp_randOnly
+chr1_true_seq_files=(${fasta_dir}/*_1_true_seqs.fasta)
 file_basenames=("${chr1_true_seq_files[@]##*/}")
-model_headers=("${file_basenames[@]/_chr1_true_seqs.fasta/}")
+model_headers=("${file_basenames[@]/_1_true_seqs.fasta/}")
 
 # Model training parameters
 yval="0"        #    
@@ -43,21 +43,21 @@ eval="0.001"    # precision
 mval="20000.0"  # Cache memory size in MB
 
 # Define training/testing folds
-all_chrs=($(seq 1 1 22))
+all_chrs=($(seq 1 1 18))
 all_chrs+=("X")
-all_chrs=("${all_chrs[@]/#/chr}")
+#all_chrs=("${all_chrs[@]/#/chr}")
 
 # 10-fold cross-validation
-fold0=(chr1)
-fold1=(chr2 chr19)
-fold2=(chr3 chr20)
-fold3=(chr6 chr13 chr22)
-fold4=(chr5 chr16)
-fold5=(chr4 chr15 chr21)
-fold6=(chr7 chr14 chr18)
-fold7=(chr11 chr17 chrX)
-fold8=(chr9 chr12)
-fold9=(chr8 chr10)
+fold0=(1)
+fold1=(2 18)
+fold2=(3 13)
+fold3=(6 X)
+fold4=(5 16)
+fold5=(4 15)
+fold6=(7 14)
+fold7=(11 17)
+fold8=(9 12)
+fold9=(8 10)
 n_folds=($(seq 0 1 9))
 
 all_folds=("${n_folds[@]/#/fold}")
@@ -106,7 +106,7 @@ do
 
             # Train models
             echo "Training model for ${model}..."
-            sbatch -p wjg,biochem,sfgf -t 72:00:00 --mem=40G --cpus-per-task=16 \
+            sbatch -t 72:00:00 --mem=40G --cpus-per-task=16 \
             --job-name=${job_header} --output=${outpre}.log --error=${outpre}.log \
             --wrap "gkmtrain -y ${yval} -t ${tval} -l ${lval} -k ${kval} -d ${dval} -g ${gval} -c ${cval} -M ${Mval} -H ${Hval} -e ${eval} \
             -m ${mval} -r 123 -T 16 ${true_seqs} ${null_seqs} ${outpre}"
@@ -135,7 +135,7 @@ do
 
         # Train models
         echo "Training model for ${model}..."
-        sbatch -p wjg,biochem,sfgf -t 72:00:00 --mem=40G --cpus-per-task=16 \
+        sbatch -t 72:00:00 --mem=40G --cpus-per-task=16 \
         --job-name=${job_header} --output=${outpre}.log --error=${outpre}.log \
         --wrap "gkmtrain -y ${yval} -t ${tval} -l ${lval} -k ${kval} -d ${dval} -g ${gval} -c ${cval} -M ${Mval} -H ${Hval} -e ${eval} \
         -m ${mval} -r 123 -T 16 ${true_seqs} ${null_seqs} ${outpre}"
