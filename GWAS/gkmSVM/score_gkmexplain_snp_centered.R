@@ -11,32 +11,32 @@ suppressPackageStartupMessages({
   library(data.table)
   library(stringr)
   library(Biostrings)
-  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(SuscrofaTxdb.11.108.july)
+  library(ggplot2)
   library(parallel)
 })
 
 # Set Threads to be used
-ncores <- 8
+ncores <- 5
 
 # Get additional functions, etc.:
-scriptPath <- "/home/users/boberrey/git_clones/scScalpChromatin"
+scriptPath <- "/home/adufour/work/scScalpChromatin"
 source(paste0(scriptPath, "/misc_helpers.R"))
 source(paste0(scriptPath, "/matrix_helpers.R"))
 source(paste0(scriptPath, "/plotting_config.R"))
 
 # gkmexplain results directory
-gkm_exp_dir <- "/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/snp_explanations"
+gkm_exp_dir <- "/home/adufour/work/gskm/snp_explanations"
 
 #Set/Create Working Directory to Folder
-gkm_res_dir <- "/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/snp_results"
+gkm_res_dir <- "/home/adufour/work/gskm/snp_results"
 dir.create(gkm_res_dir, showWarnings = FALSE, recursive = TRUE)
 setwd(gkm_res_dir)
 
 # Read in origianl SNP genomic range
-snp_gr <- readRDS("/oak/stanford/groups/wjg/boberrey/hairATAC/results/GWAS/gkmSVM/snp_fastas/250bpSNPCentered.rds")
+snp_gr <- readRDS("/home/adufour/work/gskm/fastas_1000bp_randOnly/250bpSNPCentered.rds")
 
 # Directory for full ATAC project
-atac_dir <- "/oak/stanford/groups/wjg/boberrey/hairATAC/results/scATAC_preprocessing/fine_clustered"
 
 ##########################################################################################
 # Functions
@@ -125,7 +125,7 @@ parse_full_gkmexplain_output <- function(meta_df, ncores=8, window_size=50){
   for(grp in names(res_list)){
     message(sprintf("Getting summary info for %s...", grp))
     seqnames <- res_list[[grp]]$seq_names
-    rel_snp_pos <- sapply(strsplit(seqnames, "_"), `[`, 5) %>% as.numeric()
+    rel_snp_pos <- sapply(strsplit(seqnames, "_"), `[`, 2) %>% as.numeric() + 125
     # Get the full range
     full_range <- res_list[[grp]]$explanations
     max_len <- ncol(full_range)
@@ -148,16 +148,12 @@ parse_full_gkmexplain_output <- function(meta_df, ncores=8, window_size=50){
   final_score_df_list <- lapply(cell_types, function(ct){
     ref_df <- score_df_list[[paste0(ct, "-ref_snp_seqs")]]
     ref_seqnames <- ref_df$seq_names
-    alt_df <- score_df_list[[paste0(ct, "-alt_snp_seqs")]]
-    alt_seqnames <- alt_df$seq_names
     region <- sapply(strsplit(ref_seqnames, "_"), function(x) paste(head(x, 3), collapse="_"))
-    snp <- sapply(strsplit(ref_seqnames, "_"), `[`, 4)
+    snp <- region
     df <- data.frame(
       region=region, snp=snp,
-      ref_full=ref_df$full_score, alt_full=alt_df$full_score, 
-      ref_window=ref_df$window_score, alt_window=alt_df$window_score)
-    df$score_delta <- df$ref_window - df$alt_window
-    #df$active_allele <- ifelse(df$score_delta > 0, "ref", "alt")
+      ref_full=ref_df$full_score,
+      ref_window=ref_df$window_score)
     return(df)
     })
 
@@ -177,39 +173,18 @@ parse_full_gkmexplain_output <- function(meta_df, ncores=8, window_size=50){
 
 snp_files <- list.files(
   path=gkm_exp_dir, 
-  pattern="\\.250bpSNPCentered\\.chr.*\\.gkmexplain\\.txt$", 
+  pattern="*.gkmexplain.txt", 
   full.names=TRUE
   )
 
 # Files have the format <path>/<pred_cluster>.full.<target_type>.<target_class>.chr[1-22,X].gkmexplain.txt
 clusters <- str_replace(basename(snp_files), "\\.full\\..*\\.txt$", "")
 snp_type <- str_match(basename(snp_files), "(alt|ref)_snp_seqs")[,1]
-chroms <- str_match(basename(snp_files), "chr[0-9,X]+")[,1]
+chroms <- str_match(basename(snp_files), "250bpSNPCentered\\.\\s*(.*?)\\s*\\.gkmexplain")[,2]
 
 meta_df <- data.frame(cluster=clusters, snp_type=snp_type, chr=chroms, exp_file=snp_files)
 
-#snp_gkmexplain <- parse_full_gkmexplain_output(meta_df, ncores=ncores)
 snp_gkmexplain <- parse_full_gkmexplain_output(meta_df, ncores=1)
-
-##########################################################################################
-# Read in dinucleotide shuffled SNP predictions
-##########################################################################################
-
-shuff_files <- list.files(
-  path=gkm_exp_dir, 
-  pattern="\\.250bpSNPCentered_shuff\\.chr.*\\.gkmexplain\\.txt$", 
-  full.names=TRUE
-  )
-
-# Files have the format <path>/<pred_cluster>.fold0.<target_type>.<target_class>.chr[1-22,X].gkmexplain.txt
-clusters <- str_replace(basename(shuff_files), "\\.full\\..*\\.txt$", "")
-snp_type <- str_match(basename(shuff_files), "(alt|ref)_snp_seqs")[,1]
-chroms <- str_match(basename(shuff_files), "chr[0-9,X]+")[,1]
-
-meta_df <- data.frame(cluster=clusters, snp_type=snp_type, chr=chroms, exp_file=shuff_files)
-
-#shuff_gkmexplain <- parse_full_gkmexplain_output(meta_df, ncores=ncores)
-shuff_gkmexplain <- parse_full_gkmexplain_output(meta_df, ncores=1)
 
 ##########################################################################################
 # Save parsed gkmexplain results for faster loading
@@ -217,28 +192,22 @@ shuff_gkmexplain <- parse_full_gkmexplain_output(meta_df, ncores=1)
 
 # (These are pretty huge objects: ~4GB for 16k snps...)
 saveRDS(snp_gkmexplain, file=paste0(gkm_res_dir, "/snp_gkmexplain_results.rds"))
-saveRDS(shuff_gkmexplain, file=paste0(gkm_res_dir, "/shuff_gkmexplain_results.rds"))
-
 
 snp_gkmexplain <- readRDS(paste0(gkm_res_dir, "/snp_gkmexplain_results.rds"))
-shuff_gkmexplain <- readRDS(paste0(gkm_res_dir, "/shuff_gkmexplain_results.rds"))
 
 ##########################################################################################
 # Identify 'seqlets' and compute 'prominence' and 'magnitude' scores
 ##########################################################################################
 
 # First, identify 97.5%-ile cutoff from shuffled sequences
-cell_types <- shuff_gkmexplain$score_summaries %>% names()
+cell_types <- snp_gkmexplain$score_summaries %>% names()
 
 cutoffs <- lapply(cell_types, function(ct){
-  ref_mats <- shuff_gkmexplain$gkmexplain_output[[paste0(ct,"-ref_snp_seqs")]]$seq_matrices
-  alt_mats <- shuff_gkmexplain$gkmexplain_output[[paste0(ct,"-alt_snp_seqs")]]$seq_matrices
+  ref_mats <- snp_gkmexplain$gkmexplain_output[[paste0(ct,"-ref_snp_seqs")]]$seq_matrices
   nonneg_scores <- sapply(1:length(ref_mats), function(ix){
     ref_mat <- ref_mats[[ix]]
-    alt_mat <- alt_mats[[ix]]
     ref_mat[ref_mat < 0] <- 0
-    alt_mat[alt_mat < 0] <- 0
-    c(colSums(ref_mat), colSums(alt_mat))
+    colSums(ref_mat)
     }) %>% c()
   quantile(nonneg_scores, 0.975)
   }) %>% unlist()
@@ -257,39 +226,24 @@ scoreProminence <- function(gkm_res, cutoffs, cell_types, mat_idx=101:151){
   new_score_sums <- lapply(cell_types, function(ct){
     message(sprintf("Computing scores for %s...", ct))
     ref_mats <- gkm_res$gkmexplain_output[[paste0(ct,"-ref_snp_seqs")]]$seq_matrices
-    alt_mats <- gkm_res$gkmexplain_output[[paste0(ct,"-alt_snp_seqs")]]$seq_matrices
 
     # Get the SNP window to use
     score_sum <- gkm_res$score_summaries[[ct]]
-    #windows <- score_sum[,c("window_start", "window_end")]
     cutoff <- cutoffs[ct]
 
     seqlets <- lapply(1:length(ref_mats), function(ix){
 
       # Get inner matrix from ref and alt alleles
       ref_mat <- ref_mats[[ix]]
-      alt_mat <- alt_mats[[ix]]
 
       # For these calculations, we care only about non-negative importance scores
       ref_mat[ref_mat < 0] <- 0
-      alt_mat[alt_mat < 0] <- 0
 
       # Identify the 'active' allele (i.e. the one with the larger absolute effect on accessibility)
       ref_sum <- sum(colSums(ref_mat[,mat_idx]))
-      alt_sum <- sum(colSums(alt_mat[,mat_idx]))
-
-      if(ref_sum > alt_sum){
-        active_mat <- ref_mat
-        inactive_mat <- alt_mat
-        amat_name <- "ref"
-      }else{
-        active_mat <- alt_mat
-        inactive_mat <- ref_mat
-        amat_name <- "alt"
-      }
 
       # Identify seqlets
-      acs <- colSums(active_mat[,mat_idx])
+      acs <- colSums(ref_mat[,mat_idx])
       v <- which(acs > cutoff)
       diffs <- diff(v)-1 # Get differences between consecutive indices 
 
@@ -315,25 +269,21 @@ scoreProminence <- function(gkm_res, cutoffs, cell_types, mat_idx=101:151){
 
       ## Calculate 'prominence' and 'magnitude' scores
       # First, get seqlet scores for 'active' and 'inactive' matrices
-      mat_names <- colnames(active_mat)
+      mat_names <- colnames(ref_mat)
       seqlet_ix <- which(mat_names == names(start_ix)):which(mat_names == names(end_ix))
-      seqlet_amat <- active_mat[,seqlet_ix] 
-      seqlet_imat <- inactive_mat[,seqlet_ix]
+      seqlet_amat <- ref_mat[,seqlet_ix] 
       # Compute 'effect/non-effect signal to noise ratio'
       aseqscore <- sum(colSums(seqlet_amat))
-      asnr <- aseqscore/sum(colSums(active_mat))
-      iseqscore <- sum(colSums(seqlet_imat))
-      isnr <- iseqscore/sum(colSums(inactive_mat))
+      asnr <- aseqscore/sum(colSums(ref_mat))
       # Compute prominence and magnitude (cannot be negative)
-      prominence <- max(asnr - isnr, 0)
-      magnitude <- max(aseqscore - iseqscore, 0)
+      prominence <- max(asnr, 0)
+      magnitude <- max(aseqscore, 0)
       data.frame(seqlet_start=names(start_ix), seqlet_end=names(end_ix), seqlet_width=end_ix-start_ix+1, 
-        prominence=prominence, magnitude=magnitude, active_allele=amat_name)
+        prominence=prominence, magnitude=magnitude, active_allele="ref")
       }) %>% do.call(rbind,.)
 
     # Add seqlet info to summary
     new_score_sum <- cbind(gkm_res$score_summaries[[ct]], seqlets)
-    #rownames(new_score_sum) <- paste0(new_score_sum$snp, "_", ct)
     rownames(new_score_sum) <- 1:nrow(new_score_sum)
     new_score_sum
   })
@@ -346,90 +296,8 @@ scoreProminence <- function(gkm_res, cutoffs, cell_types, mat_idx=101:151){
   return(gkm_res)
 }
 
-
 # SNP gkmexplain first:
 snp_gkmexplain <- scoreProminence(snp_gkmexplain, cutoffs=cutoffs, cell_types=names(cutoffs))
-
-# Compute for 'null' sequences as well:
-shuff_gkmexplain <- scoreProminence(shuff_gkmexplain, cutoffs=cutoffs, cell_types=names(cutoffs))
-
-##########################################################################################
-
-library(ggplot2)
-
-trait_groups <- list(
-  AGA=c("Male-pattern baldness", "Balding_Type4"),
-  eczema=c("Eczema"),
-  hair_color=c("Hair color"),
-  random=c("random")
-  )
-snp_groups <- lapply(trait_groups, function(grp) snp_gr$linked_SNP[snp_gr$disease_trait %in% grp])
-
-trait_colors <- c(
-  AGA="blue",
-  eczema="green4", # green
-  hair_color="orange",
-  random="grey60"
-  )
-
-##########################################################################################
-# Estimate null distributions with a parameterized distribution
-##########################################################################################
-
-library(metRology)
-library(fitdistrplus)
-
-# Calculate null distribution for each cell type
-shuff_delta_mat <- lapply(shuff_gkmexplain$score_summaries, function(x) x$score_delta) %>% do.call(cbind,.) 
-
-# Fit distributions for score delta
-normal_dist_params <- apply(shuff_delta_mat, 2, function(x) fitdistrplus::fitdist(x, distr="norm"))
-t_dist_params <- apply(shuff_delta_mat, 2, function(x) fitdistrplus::fitdist(x, distr="t.scaled", start=list(df=6, mean=mean(x), sd=sd(x))))
-
-pdf(paste0(gkm_res_dir, "/qq_normal.pdf"), width=5, height=5)
-lapply(names(normal_dist_params), function(nm) fitdistrplus::qqcomp(list(normal_dist_params[[nm]]), main=nm))
-dev.off()
-
-pdf(paste0(gkm_res_dir, "/qq_tscaled.pdf"), width=5, height=5)
-lapply(names(t_dist_params), function(nm) fitdistrplus::qqcomp(list(t_dist_params[[nm]]), main=nm))
-dev.off()
-
-# Fit distributions for prominence
-shuff_prom_mat <- lapply(shuff_gkmexplain$score_summaries, function(x) x$prominence) %>% do.call(cbind,.) 
-
-pdf(paste0(gkm_res_dir, "/prom_hist.pdf"), width=5, height=5)
-lapply(colnames(shuff_prom_mat), function(nm) hist(shuff_prom_mat[,nm], breaks=50, main=nm))
-dev.off()
-
-exp_params <- apply(shuff_prom_mat, 2, function(x) fitdistrplus::fitdist(x, distr="exp"))
-pdf(paste0(gkm_res_dir, "/prom_exp_qq.pdf"), width=5, height=5)
-lapply(names(exp_params), function(nm) fitdistrplus::qqcomp(list(exp_params[[nm]]), main=nm))
-dev.off()
-
-##########################################################################################
-# Calculate p-values for each snp in each cell type using fit null distributions
-##########################################################################################
-
-sd_pval_res <- list()
-pr_pval_res <- list()
-
-for(ct in cell_types){
-
-  # Score delta p-values
-  sd_params <- t_dist_params[[ct]]$estimate
-  score_deltas <- snp_gkmexplain$score_summaries[[ct]]$score_delta
-  pvals <- 2*metRology::pt.scaled(-abs(score_deltas - sd_params["mean"]), 
-    df=sd_params["df"], mean=0, sd=sd_params["sd"])
-  snp_gkmexplain$score_summaries[[ct]]$sd_pval <- pvals
-  sd_pval_res[[ct]] <- pvals
-
-  # Prominence p-values
-  prom_params <- exp_params[[ct]]$estimate
-  prominences <- snp_gkmexplain$score_summaries[[ct]]$prominence
-  pvals <- pexp(prominences, rate=prom_params["rate"], lower.tail=FALSE)
-  snp_gkmexplain$score_summaries[[ct]]$pr_pval <- pvals
-  pr_pval_res[[ct]] <- pvals
-}
 
 ##########################################################################################
 # Examine enrichment of high-effect hits
@@ -438,110 +306,21 @@ for(ct in cell_types){
 # p-value cutoffs for significant hits
 significant_hits <- lapply(cell_types, function(ct){
   score_sum <- snp_gkmexplain$score_summaries[[ct]]
-  score_sum <- score_sum[((score_sum$sd_pval < 0.05) & (score_sum$pr_pval < 0.05)),]
   score_sum$cluster <- ct
   score_sum
   }) %>% do.call(rbind,.)
 
-# Add finemapping prior probability to significant hits
-trait_to_traitgrp <- invertList(trait_groups) %>% unlist()
-fm_probs <- snp_gr$fm_prob
-names(fm_probs) <- snp_gr$linked_SNP
-traits <- trait_to_traitgrp[snp_gr$disease_trait]
-names(traits) <- snp_gr$linked_SNP
-
-significant_hits$fm_probs <- round(fm_probs[significant_hits$snp], 4)
-significant_hits$trait <- factor(traits[significant_hits$snp])
-
-# Get order of traits 
-trait_order <- names(trait_groups)
-snp_totals <- unlist(lapply(snp_groups[names(trait_groups)], length))
-
-# Look at number of significant hits by cell type for each trait
-nsig <- lapply(cell_types, function(ct){
-  ct_sig <- significant_hits[significant_hits$cluster == ct,]
-  frq <- ct_sig$trait %>% getFreqs()
-  frq[trait_order]
-  }) %>% do.call(rbind,.)
-rownames(nsig) <- cell_types
-colnames(nsig) <- trait_order
-
-# Compute fisher p-values and odds ratios
-fisherTestSig <- function(nsigvec1, ntotal1, nsigvec2, ntotal2){
-  df <- data.frame(nsigvec1, nsigvec2)
-  res_df <- apply(df, 1, function(x){
-    x1sig <- x[1]
-    x2sig <- x[2]
-    x1nsig <- ntotal1 - x1sig
-    x2nsig <- ntotal2 - x2sig
-    OR <- (x1sig/x1nsig)/(x2sig/x2nsig)
-    pval <- fisher.test(matrix(c(x1sig, x1nsig, x2sig, x2nsig), 2, 2), alternative="greater")$p.value
-    data.frame(OR=OR, pval=pval)
-    }) %>% do.call(rbind,.)
-  res_df
-}
-
-# Calculate odds ratio and p-value for each cluster (model)
-sig_enrichment <- lapply(names(snp_totals), function(sg){
-  df <- fisherTestSig(nsig[,sg], snp_totals[sg], nsig[,"random"], snp_totals["random"])
-  df$trait <- sg
-  df$cluster <- rownames(df)
-  df
-  }) %>% do.call(rbind,.)
-
-# Get cluster information and save table
-source(paste0(scriptPath, "/cluster_labels.R"))
-sig_enrichment$LFineClust <- unlist(atac.FineClust)[sig_enrichment$cluster]
-write.table(sig_enrichment, 
-  file=paste0(gkm_res_dir, "/gkmSVM_high_effect_cluster_enrichments.tsv"), 
-  quote=FALSE, sep="\t", col.names=NA, row.names=TRUE) 
-
-OR_sig <- unmelt(sig_enrichment[sig_enrichment$trait != "random",], 
-  row_col="cluster", col_col="trait", val_col="OR") %>% as.data.frame()
-
-pct_sig <- t(t(nsig)/snp_totals) * 100
-
-# Plot OR by cluster on full UMAP
-library(ArchR)
-source(paste0(scriptPath, "/archr_helpers.R"))
-atac_proj <- loadArchRProject(atac_dir, force=TRUE)
-
-# Plot scATAC with ATAC cluster labels
-umapPlots <- list()
-umapDF <- buildUMAPdfFromArchR(atac_proj, cellColData="FineClust")
-or_lims <- c(-1, 1)
-
-for(trait in colnames(OR_sig)){
-  clust_to_OR <- OR_sig[,trait]
-  names(clust_to_OR) <- rownames(OR_sig)
-  plotDF <- umapDF
-  plotDF$FineClust <- log2(clust_to_OR[plotDF$FineClust])
-  plotDF$FineClust[plotDF$FineClust < or_lims[1]] <- or_lims[1]
-  plotDF$FineClust[plotDF$FineClust > or_lims[2]] <- or_lims[2]
-  umapPlots[[trait]] <- plotUMAP(plotDF, dataType = "quantitative", cmap=cmaps_BOR$brewer_yes, 
-    colorLims=or_lims, point_size=0.4, na.value="white", # gray35 by default
-    covarLabel=sprintf("log2 OR %s", trait), useRaster=TRUE)
-}
-
-pdf(paste0(gkm_res_dir,"/hit_enrichments_UMAP.pdf"), width=10, height=8)
-umapPlots
-dev.off()
-
-# Subset to hits
-significant_hits <- significant_hits[significant_hits$snp %in% c(snp_groups[["AGA"]], 
-  snp_groups[["hair_color"]], snp_groups[["eczema"]]),]
-
+snp_gr$linked_SNP <- paste0(seqnames(snp_gr),"_",start(snp_gr),"_",end(snp_gr))
 
 # Get all seqlets
 significant_hits$seqlet_seq <- apply(significant_hits, 1, function(x){
   snp <- x[2]
-  start <- as.numeric(sub(".", "", x[8]))
-  end <- as.numeric(sub(".", "", x[9]))
-  full_seq <- mcols(snp_gr[snp_gr$linked_SNP == snp])[1,paste0(x[13],"seq")]
+  start <- as.numeric(sub(".", "", x[5]))
+  end <- as.numeric(sub(".", "", x[6]))
+  full_seq <- mcols(snp_gr[snp_gr$linked_SNP == snp])[1,"refseq"]
   subseq <- subseq(full_seq, start=start, end=end) %>% as.character()
   subseq
   }) %>% unname()
-
 
 ##########################################################################################
 # Use tomtom to predict likely motif matches for each seqlet
@@ -550,7 +329,7 @@ significant_hits$seqlet_seq <- apply(significant_hits, 1, function(x){
 library(memes)
 library(universalmotif)
 options(meme_bin = "/home/users/boberrey/software/meme/bin")
-options(meme_db = "/oak/stanford/groups/wjg/boberrey/reference_files/meme_motifs/motif_databases/CIS-BP_2.00/Homo_sapiens.meme")
+options(meme_db = "/home/adufour/work/cistargetdb/meme_file/meme_v2.txt")
 
 
 getBestMotifMatches <- function(snp, snp_table, gkm_explain_output, celltype, 
@@ -560,40 +339,30 @@ getBestMotifMatches <- function(snp, snp_table, gkm_explain_output, celltype,
   # Get required names for accessing data
   snp_info <- snp_table[(snp_table$snp == snp & snp_table$cluster == celltype),]
   ref_group <- paste0(celltype, "-ref_snp_seqs")
-  alt_group <- paste0(celltype, "-alt_snp_seqs")
-  snp_region <- paste0(snp_info$region, "_", snp, "_125")
+  region <- snp_info$region[1]
   seqlet <- snp_info$seqlet_seq
-  
-  # Get seqlet region
-  if(snp_info$active_allele == "ref"){
-    active_grp <- ref_group
-    inactive_grp <- alt_group
-  }else{
-    active_grp <- alt_group
-    inactive_grp <- ref_group
-  }
 
   # Retrieve importance scores spanning seqlet
   seqlet_start <- as.numeric(sub(".", "", snp_info$seqlet_start)) 
   seqlet_end <- as.numeric(sub(".", "", snp_info$seqlet_end))
-  active_mat <- gkm_explain_output$gkmexplain_output[[active_grp]]$seq_matrices[[snp_region]][,seqlet_start:seqlet_end]
-  inactive_mat <- gkm_explain_output$gkmexplain_output[[inactive_grp]]$seq_matrices[[snp_region]][,seqlet_start:seqlet_end]
+  active_mat <- gkm_explain_output$gkmexplain_output[[ref_group]]$seq_matrices[[snp_region]][,seqlet_start:seqlet_end]
+  #inactive_mat <- gkm_explain_output$gkmexplain_output[[inactive_grp]]$seq_matrices[[snp_region]][,seqlet_start:seqlet_end]
 
   # Threshold to zero and get delta matrix
   active_mat[active_mat < 0] <- 0
-  inactive_mat[inactive_mat < 0] <- 0
-  delta_mat <- active_mat - inactive_mat
+  #inactive_mat[inactive_mat < 0] <- 0
+  #delta_mat <- active_mat - inactive_mat
 
   # Zero values cause issues with the ICM format
-  delta_mat[delta_mat <= 0] <- 0.0001
+  active_mat[active_mat <= 0] <- 0.0001
   
   # Normalize to maximum signal
-  delta_mat <- delta_mat/max(delta_mat)
+  active_mat <- active_mat/max(active_mat)
 
   # Create Information Content Motif (multiply by 2 to have 2 bits for maximum value position)
   # (Need to remove row and column names from matrix for create_motif to allow 'DNA' alphabet)
   motif <- universalmotif::create_motif(
-    unname(delta_mat)*2, 
+    unname(active_mat)*2, 
     alphabet="DNA", type="ICM"
     ) 
   
@@ -634,7 +403,5 @@ message(sprintf("Found motifs in %s minutes", round(difftime(end_time, start_tim
 # Save intermediate results
 saveRDS(significant_hits, file=paste0(gkm_res_dir, "/significant_hits_table.rds"))
 saveRDS(snp_gkmexplain, file=paste0(gkm_res_dir, "/snp_gkmexplain_results.rds"))
-saveRDS(shuff_gkmexplain, file=paste0(gkm_res_dir, "/shuff_gkmexplain_results.rds"))
 
 ##########################################################################################
-
